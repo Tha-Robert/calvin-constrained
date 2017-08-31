@@ -19,8 +19,17 @@ Clone the constrained runtime repository with the recursive flag to include used
 ```
 git clone --recursive https://github.com/EricssonResearch/calvin-constrained.git
 ```
+or get them later with  
+```
+git submodule init
+git submodule update
+```
 
 And follow the platform specific instructions in the runtime/south/platform/X/README.md to build and start the runtime.
+For example to build for x86 use:
+```
+make -f runtime/south/platform/x86/Makefile
+```
 
 ## Runtime ports
 

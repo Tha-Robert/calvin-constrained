@@ -26,6 +26,20 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+// Location
+import android.location.LocationManager;
+//import android.location.LocationListener;
+import android.location.Criteria;
+import android.location.Location;
+import android.location.Geocoder;
+import android.location.Address;
+
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.location.LocationListener;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationServices;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -36,8 +50,12 @@ import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements
+        GoogleApiClient.ConnectionCallbacks,
+        GoogleApiClient.OnConnectionFailedListener,
+        LocationListener {
     private static final int MY_PERMISSIONS_REQUEST = 1;
     private static final String TAG = "esp-config";
     private static final String ESP_SSID = "calvin-esp";
@@ -46,11 +64,31 @@ public class MainActivity extends AppCompatActivity {
     private ProgressBar spinner;
     private Dialog dialog;
     private TextView textScanning;
+    private final int MY_PERMISSION_ACCESS_COARSE_LOCATION=1;
+
+    private GoogleApiClient mGoogleApiClient;
+    private LocationRequest mLocationRequest;
+    private int USE_GPS = 0;
+    Address currentAddress = null;
+    double currentPossition[] = {0.0, 0.0};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        if ( ContextCompat.checkSelfPermission( this, android.Manifest.permission.ACCESS_COARSE_LOCATION ) != PackageManager.PERMISSION_GRANTED ) {
+
+            ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION},
+                    this.MY_PERMISSION_ACCESS_COARSE_LOCATION);
+        }
+
+
+        mGoogleApiClient = new GoogleApiClient.Builder(this)
+                    .addApi(LocationServices.API)
+                    .addConnectionCallbacks(this)
+                    .addOnConnectionFailedListener(this)
+                    .build();
 
         dialog = new Dialog(this);
         dialog.setContentView(R.layout.configure);
@@ -58,6 +96,7 @@ public class MainActivity extends AppCompatActivity {
         dialog.getWindow().setLayout(WindowManager.LayoutParams.FILL_PARENT, WindowManager.LayoutParams.FILL_PARENT);
 
         Button dialogButton = (Button) dialog.findViewById(R.id.buttonConfigure);
+
         dialogButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -122,6 +161,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void doScan() {
+        // TODO: Fix this
         WifiManager wifi = (WifiManager)getSystemService(Context.WIFI_SERVICE);
         WifiScanReceiver wifiReciever = new WifiScanReceiver();
 
@@ -130,6 +170,7 @@ public class MainActivity extends AppCompatActivity {
             wifi.setWifiEnabled(true);
 
         wifi.startScan();
+        spinner.setVisibility(View.VISIBLE);
         spinner.setVisibility(View.VISIBLE);
         textScanning.setText(("Scanning"));
         textScanning.setVisibility(View.VISIBLE);
@@ -143,6 +184,111 @@ public class MainActivity extends AppCompatActivity {
                 doScan();
         } else
             doScan();
+    }
+
+    // For play services and location
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if ( ContextCompat.checkSelfPermission( this, android.Manifest.permission.ACCESS_COARSE_LOCATION ) != PackageManager.PERMISSION_GRANTED) {
+
+            ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION},
+                    this.MY_PERMISSION_ACCESS_COARSE_LOCATION);
+        }
+        // Connect the client if are allowed to use it
+         Log.i(TAG, "Activty started!");
+         mGoogleApiClient.connect();
+    }
+
+    @Override
+    protected void onStop() {
+        // Disconnecting the client invalidates it.
+        if (mGoogleApiClient != null && mGoogleApiClient.isConnected()) {
+            if (ContextCompat.checkSelfPermission( this, android.Manifest.permission.ACCESS_COARSE_LOCATION ) == PackageManager.PERMISSION_GRANTED) {
+                LocationServices.FusedLocationApi.removeLocationUpdates(
+                        mGoogleApiClient,
+                        this);
+            }
+            mGoogleApiClient.disconnect();
+        }
+        super.onStop();
+    }
+
+    @Override
+    public void onConnected(Bundle bundle) {
+
+        mLocationRequest = LocationRequest.create();
+        mLocationRequest.setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY);
+        mLocationRequest.setInterval(10000); // Update location every second
+
+        Log.i(TAG, "Google API connected");
+
+        // Check permissions and use GPS if we are allowed
+        if (ContextCompat.checkSelfPermission( this, android.Manifest.permission.ACCESS_COARSE_LOCATION ) == PackageManager.PERMISSION_GRANTED) {
+            Log.i(TAG, "Request location updates");
+            LocationServices.FusedLocationApi.requestLocationUpdates(
+                    mGoogleApiClient, mLocationRequest, this);
+            this.onLocationChanged(LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient));
+        }
+    }
+
+    @Override
+    public void onConnectionSuspended(int i) {
+        Log.i(TAG, "GoogleApiClient connection has been suspend");
+    }
+
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+        Log.i(TAG, "GoogleApiClient connection has failed");
+    }
+
+    @Override
+    public void onLocationChanged(Location location) {
+
+        if (location == null) {
+            Log.w(TAG, "We have no location yet");
+        }
+        Geocoder geocoder;
+        List<Address> addresses;
+        geocoder = new Geocoder(this, Locale.getDefault());
+
+        double latitude = location.getLatitude();
+        double longitude = location.getLongitude();
+
+        currentPossition[0] = longitude;
+        currentPossition[0] = latitude;
+
+        Log.i(TAG, "latitude-- " + latitude);
+        Log.i(TAG, "longitude-- " + longitude);
+
+        try {
+            addresses = geocoder.getFromLocation(latitude, longitude, 1);
+
+            if (addresses != null && addresses.size() > 0) {
+                currentAddress = addresses.get(0);
+                String address = addresses.get(0).getAddressLine(0);
+                String city = addresses.get(0).getLocality();
+                String state = addresses.get(0).getAdminArea();
+                String country = addresses.get(0).getCountryName();
+                String postalCode = addresses.get(0).getPostalCode();
+                String knownName = addresses.get(0).getFeatureName();
+
+                Log.w(TAG, "Adress:  " + address);
+                Log.w(TAG, "Road:    " + addresses.get(0).getThoroughfare() + " " + addresses.get(0).getSubThoroughfare());
+                Log.w(TAG, "Postal:  " + postalCode);
+                Log.w(TAG, "City:    " + city);
+                Log.w(TAG, "State:   " + state);
+                Log.w(TAG, "Country: " + country);
+                Log.w(TAG, "Ccode:   " + addresses.get(0).getCountryCode());
+                Log.w(TAG, "Name:    " + addresses.get(0).getFeatureName());
+
+            }
+
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -232,6 +378,22 @@ public class MainActivity extends AppCompatActivity {
     private void showConfig() {
         spinner.setVisibility(View.GONE);
         textScanning.setVisibility(View.GONE);
+
+        if (currentAddress != null) {
+            Log.w(TAG, "Populating address");
+            ((EditText)dialog.findViewById(R.id.textCountry)).setText(currentAddress.getCountryCode());
+            ((EditText)dialog.findViewById(R.id.textState)).setText(currentAddress.getAdminArea());
+            ((EditText)dialog.findViewById(R.id.textLocality)).setText(currentAddress.getLocality());
+            //((EditText)dialog.findViewById(R.id.textLocality)).setText(currentPossition[0] + ", " + currentPossition[1]);
+            ((EditText)dialog.findViewById(R.id.textStreet)).setText(currentAddress.getThoroughfare());
+            ((EditText)dialog.findViewById(R.id.textStreetNumber)).setText(currentAddress.getSubThoroughfare());
+            if (currentAddress.getThoroughfare().equals("Sölvegatan") && currentAddress.getSubThoroughfare().equals("53")) {
+                ((EditText) dialog.findViewById(R.id.textBuilding)).setText("Bricks Lund");
+                ((EditText) dialog.findViewById(R.id.textFloor)).setText("1");
+                ((EditText) dialog.findViewById(R.id.textRoom)).setText("1872 Ericsson Garage");
+                ((EditText) dialog.findViewById(R.id.textOrganization)).setText("Ericsson");
+            }
+        }
         dialog.show();
     }
 
